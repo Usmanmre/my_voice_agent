@@ -1,0 +1,14 @@
+# Web server
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-dotenv>=1.0.0
+
+# LiveKit realtime + token generation
+livekit>=0.18.0
+livekit-api>=0.8.0
+
+# LiveKit Agents (STT / LLM / TTS via Inference gateway)
+livekit-agents>=1.0.0
+livekit-plugins-silero
+livekit-plugins-turn-detector
+livekit-plugins-noise-cancellation
