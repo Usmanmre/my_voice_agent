@@ -6,6 +6,7 @@ __pycache__/
 venv/
 .env
 
+node_modules/
 # Silero / torch cache
 *.pt
 hub/
@@ -17,3 +18,5 @@ hub/
 .DS_Store
 .idea/
 .vscode/
+
+credentials.json

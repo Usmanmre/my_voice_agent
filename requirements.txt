@@ -7,8 +7,10 @@ python-dotenv>=1.0.0
 livekit>=0.18.0
 livekit-api>=0.8.0
 
-# LiveKit Agents (STT / LLM / TTS via Inference gateway)
+# LiveKit Agents (STT / LLM / TTS via provider plugins + your own API keys)
 livekit-agents>=1.0.0
+livekit-plugins-deepgram
+livekit-plugins-openai
 livekit-plugins-silero
 livekit-plugins-turn-detector
 livekit-plugins-noise-cancellation

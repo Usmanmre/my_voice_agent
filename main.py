@@ -1,3 +1,4 @@
+import datetime
 import logging
 
 from dotenv import load_dotenv
@@ -6,9 +7,11 @@ from livekit.agents import (
     AgentServer,
     AgentSession,
     JobContext,
+    RunContext,
     TurnHandlingOptions,
     cli,
-    inference,
+    function_tool,
+    get_job_context,
     llm,
     room_io,
 )
@@ -19,7 +22,10 @@ from livekit.agents.voice.events import (
     MetricsCollectedEvent,
     UserInputTranscribedEvent,
 )
-from livekit.plugins import noise_cancellation
+from livekit.plugins import deepgram, noise_cancellation, openai, silero
+
+from config import settings
+from google_auth import sheet
 
 load_dotenv()
 
@@ -102,31 +108,101 @@ def attach_pipeline_logging(session: AgentSession) -> None:
         if e2e is not None and e2e >= 1.0:
             logger.warning("[PIPELINE LATENCY] e2e above 1s target: %s", _ms(e2e))
 
+@function_tool
+async def schedule_call(
+    ctx: RunContext,
+    name: str,
+    email: str,
+    company: str,
+    project_details: str,
+    ) -> str:
+    """Schedule a call with Usman."""
+
+    logger.info(f"Scheduling call for {name} ({email})")
+    
+    try:
+        sheet.append_row([
+            name,
+            email,
+            company,
+            project_details,
+            datetime.datetime.now(datetime.UTC).isoformat(),
+        ])
+        return "Thanks! I've shared your details with Usman. He'll review your project and get back to you soon."
+    except Exception as e:
+        logger.error(f"Error scheduling call: {e}")
+        return "Sorry, I couldn't schedule your call. Please try again later."
+
+@function_tool(
+    description=f"""
+End the call when the caller is done, says goodbye, or confirms they need nothing else.
+
+Do not paraphrase or shorten the closing. Do not call while the caller is still asking a question.
+"""
+)
+async def end_call(ctx: RunContext):
+    try:
+        job_ctx = get_job_context()
+        if job_ctx is None:
+            return
+        await job_ctx.delete_room()
+        return "If you need anything else, feel free to reach out. Have a great day!"
+    except Exception as e:
+        return f"Failed to end call: {str(e)}"
+
+
+def _require_provider_keys() -> None:
+    missing = [
+        name
+        for name, value in (
+            ("DEEPGRAM_API_KEY", settings.deepgram_api_key),
+            ("OPENAI_API_KEY", settings.openai_api_key)
+        )
+        if not value
+    ]
+    if missing:
+        raise RuntimeError(
+            "Missing provider API keys in .env: "
+            + ", ".join(missing)
+        )
+
 
 @server.rtc_session(agent_name="voice-agent")
 async def entrypoint(ctx: JobContext):
+    _require_provider_keys()
+
     session = AgentSession(
-        stt="deepgram/nova-3:en",
-        llm="openai/gpt-4o-mini",
-        tts="cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-        vad=inference.VAD(
-            model="silero",
+        stt=deepgram.STT(
+            model=settings.stt_model,
+            language=settings.stt_language,
+            api_key=settings.deepgram_api_key,
+            interim_results=True,
+        ),
+        llm=openai.LLM(
+            model=settings.llm_model,
+            api_key=settings.openai_api_key,
+        ),
+        tts=deepgram.TTS(
+            model=settings.tts_model,
+            api_key=settings.deepgram_api_key,
+        ),
+        vad=silero.VAD.load(
             activation_threshold=0.5,
             min_speech_duration=0.3,
             min_silence_duration=0.9,
         ),
         turn_handling=TurnHandlingOptions(
-            turn_detection=inference.TurnDetector(),
+            turn_detection="stt",
             endpointing={
-                "min_delay": 0.5,
-                "max_delay": 3.0,
+                "min_delay": settings.min_endpointing_delay,
+                "max_delay": settings.max_endpointing_delay,
             },
             interruption={
                 "enabled": True,
                 "min_duration": 0.5,
             },
         ),
-        preemptive_generation=True,
+        preemptive_generation=settings.preemptive_generation,
     )
 
     attach_pipeline_logging(session)
@@ -156,7 +232,7 @@ For recruiters, highlight Usman's experience with NestJS, PostgreSQL, AWS, real-
 For founders, understand their product, challenges, and timeline.
 
 Contact information of Usman is:
-Email: usmanjamil86@gmail.com
+Email: usmanjamil8641@gmail.com
 Number: +92-331-59938459
 
 If someone is interested in hiring Usman, 1 by 1, collect:
@@ -167,8 +243,13 @@ If someone is interested in hiring Usman, 1 by 1, collect:
 * Project details
 
 Never invent experience, projects, or technologies.
-"""
+""",
+tools=[
+                schedule_call,
+                end_call,
+            ],
         ),
+        
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=noise_cancellation.BVC(),
@@ -177,8 +258,8 @@ Never invent experience, projects, or technologies.
     )
 
     await ctx.connect()
-    await session.generate_reply(
-        instructions="Greet the user and offer your assistance.",
+    await session.say(
+        "Hello, I am Usman's AI portfolio assistant. How can I help you today?",
     )
 
 

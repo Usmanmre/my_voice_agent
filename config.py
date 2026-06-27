@@ -28,20 +28,22 @@ def _float(value: str | None, default: float) -> float:
 
 @dataclass(frozen=True)
 class Settings:
-    # --- LiveKit (credentials for room + Inference gateway) ---
+    # --- LiveKit (room + token generation) ---
     livekit_url: str = os.getenv("LIVEKIT_URL", "ws://localhost:7880")
     livekit_api_key: str = os.getenv("LIVEKIT_API_KEY", "devkey")
     livekit_api_secret: str = os.getenv("LIVEKIT_API_SECRET", "secret")
     livekit_room: str = os.getenv("LIVEKIT_ROOM", "voice-agent")
     livekit_identity: str = os.getenv("LIVEKIT_IDENTITY", "voice-agent-bot")
 
-    # --- LiveKit Inference models ---
-    stt_model: str = os.getenv("STT_MODEL", "deepgram/nova-3:en")
-    llm_model: str = os.getenv("LLM_MODEL", "openai/gpt-4o-mini")
-    tts_model: str = os.getenv(
-        "TTS_MODEL",
-        "cartesia/sonic-3:9626c31c-bec5-4cca-baa8-f8ba9e84c8bc",
-    )
+    # --- Provider API keys (direct; not routed via LiveKit Inference) ---
+    deepgram_api_key: str = os.getenv("DEEPGRAM_API_KEY", "")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+
+    # --- STT / LLM / TTS models ---
+    stt_model: str = os.getenv("STT_MODEL", "nova-3")
+    stt_language: str = os.getenv("STT_LANGUAGE", "en")
+    llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    tts_model: str = os.getenv("TTS_MODEL", "aura-2-thalia-en")
     preemptive_generation: bool = _bool(os.getenv("PREEMPTIVE_GENERATION"), True)
 
     # Turn detection: stt (default, works embedded), vad, multilingual (needs job worker)

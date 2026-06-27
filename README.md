@@ -74,9 +74,9 @@ wscat -c ws://localhost:8000/ws/events
 │  main.py — FastAPI + AgentSession                │
 │                                                  │
 │  AgentSession (preemptive_generation=True)        │
-│    STT  → deepgram/nova-3 via Inference         │
-│    LLM  → openai/gpt-4o-mini via Inference      │
-│    TTS  → cartesia/sonic-3 via Inference        │
+│    STT  → Deepgram nova-3 via provider key      │
+│    LLM  → OpenAI gpt-4o-mini via provider key   │
+│    TTS  → Deepgram Aura via provider key        │
 │    VAD  → Silero plugin                         │
 │    Turn → Multilingual turn-detector plugin     │
 └──────────────────────────────────────────────────┘
@@ -98,9 +98,12 @@ Partial transcripts arrive via streaming STT (`interim_results`). At end-of-turn
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `STT_MODEL` | `deepgram/nova-3:en` | LiveKit Inference STT |
-| `LLM_MODEL` | `openai/gpt-4o-mini` | LiveKit Inference LLM |
-| `TTS_MODEL` | `cartesia/sonic-3:…` | LiveKit Inference TTS voice |
+| `DEEPGRAM_API_KEY` | required | Deepgram STT/TTS provider key |
+| `OPENAI_API_KEY` | required | OpenAI LLM provider key |
+| `STT_MODEL` | `nova-3` | Deepgram STT model |
+| `STT_LANGUAGE` | `en` | Deepgram STT language |
+| `LLM_MODEL` | `gpt-4o-mini` | OpenAI LLM model |
+| `TTS_MODEL` | `aura-2-thalia-en` | Deepgram TTS model |
 | `PREEMPTIVE_GENERATION` | `true` | Overlap LLM/TTS with user speech |
 | `MIN_ENDPOINTING_DELAY` | `0.5` | Min silence before end-of-turn (seconds) |
 | `MAX_ENDPOINTING_DELAY` | `3.0` | Max wait before forcing end-of-turn |
