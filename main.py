@@ -1,3 +1,4 @@
+import asyncio
 import datetime
 import logging
 
@@ -7,8 +8,10 @@ from livekit.agents import (
     AgentServer,
     AgentSession,
     JobContext,
+    MetricsCollectedEvent,
     RunContext,
     TurnHandlingOptions,
+    WorkerOptions,
     cli,
     function_tool,
     get_job_context,
@@ -19,7 +22,6 @@ from livekit.agents.metrics import log_metrics
 from livekit.agents.voice.events import (
     AgentStateChangedEvent,
     ConversationItemAddedEvent,
-    MetricsCollectedEvent,
     UserInputTranscribedEvent,
 )
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
@@ -117,9 +119,7 @@ async def schedule_call(
     project_details: str,
     ) -> str:
     """Schedule a call with Usman."""
-
     logger.info(f"Scheduling call for {name} ({email})")
-    
     try:
         sheet.append_row([
             name,
@@ -134,9 +134,8 @@ async def schedule_call(
         return "Sorry, I couldn't schedule your call. Please try again later."
 
 @function_tool(
-    description=f"""
+    description="""
 End the call when the caller is done, says goodbye, or confirms they need nothing else.
-
 Do not paraphrase or shorten the closing. Do not call while the caller is still asking a question.
 """
 )
@@ -144,7 +143,8 @@ async def end_call(ctx: RunContext):
     try:
         job_ctx = get_job_context()
         if job_ctx is None:
-            return
+            return "Unable to access job context to disconnect the room."
+        
         await job_ctx.delete_room()
         return "If you need anything else, feel free to reach out. Have a great day!"
     except Exception as e:
@@ -162,8 +162,7 @@ def _require_provider_keys() -> None:
     ]
     if missing:
         raise RuntimeError(
-            "Missing provider API keys in .env: "
-            + ", ".join(missing)
+            "Missing provider API keys in .env: " + ", ".join(missing)
         )
 
 
@@ -171,6 +170,12 @@ def _require_provider_keys() -> None:
 async def entrypoint(ctx: JobContext):
     _require_provider_keys()
 
+    # Fixed local scoping issues from procedural layout
+    silence_state = {
+        "count": 0,
+        "task": None
+    }
+    
     session = AgentSession(
         stt=deepgram.STT(
             model=settings.stt_model,
@@ -207,11 +212,52 @@ async def entrypoint(ctx: JobContext):
 
     attach_pipeline_logging(session)
 
+    # Scoped helper timeouts methods
+    async def handle_silence_timeout():
+        await asyncio.sleep(settings.silence_timeout_seconds)
+        silence_state["count"] += 1
+        
+        if silence_state["count"] >= 2:
+            logger.info("Silence limit reached twice. Forcing disconnect sequence.")
+            await session.say(
+                "I haven't heard from you, so I'm going to end the call now. If you need anything else, feel free to reach out. Have a great day!"
+            )
+            await session.wait_for_playback()
+            await ctx.delete_room()
+        else:
+            logger.info("Silence detected once. Prompting target checkpoint query.")
+            await session.say("Are you still there? Let me know if you need any assistance.")
+
+    def reset_silence_timer():
+        if silence_state["task"]:
+            silence_state["task"].cancel()
+        silence_state["task"] = asyncio.create_task(handle_silence_timeout())
+
+    @session.on("agent_state_changed")
+    def on_agent_state_changed(ev: AgentStateChangedEvent):
+        # logger.info("Agent state: %s -> %s", ev.old_state, ev.new_state) # optional duplicate log
+        
+        # If the agent just finished speaking and is now waiting/listening
+        if ev.new_state == "listening":
+            logger.info("Agent is listening. Starting silence detection timer...")
+            reset_silence_timer()
+            
+        # If the user starts speaking or agent starts thinking, kill the idle timer
+        elif ev.new_state in ("speaking", "thinking"):
+            if silence_state["task"]:
+                logger.info("User activity or agent response detected. Cancelling silence timer.")
+                silence_state["task"].cancel()
+                silence_state["task"] = None
+                
+            # If the user actually spoke, reset the strike count completely
+            if ev.new_state == "thinking":
+                silence_state["count"] = 0
+
     await session.start(
         room=ctx.room,
         agent=Agent(
-         instructions = """
-You are Usman's AI portfolio assistant. Never answer questions outside this domain.
+            instructions="""
+You are Usman's AI portfolio assistant. Never answer questions outside this domain. You can share personal contact information with the caller.
 
 Usman is a Full-Stack Engineer with 3 years of experience building SaaS platforms, AI applications, voice agents, chatbots, and real-time systems.
 
@@ -233,10 +279,9 @@ For founders, understand their product, challenges, and timeline.
 
 Contact information of Usman is:
 Email: usmanjamil8641@gmail.com
-Number: +92-331-59938459
+Number: +92-331-59-38-459
 
 If someone is interested in hiring Usman, 1 by 1, collect:
-
 * Name
 * Email
 * Company
@@ -244,12 +289,11 @@ If someone is interested in hiring Usman, 1 by 1, collect:
 
 Never invent experience, projects, or technologies.
 """,
-tools=[
+            tools=[
                 schedule_call,
                 end_call,
             ],
         ),
-        
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
                 noise_cancellation=noise_cancellation.BVC(),
@@ -264,4 +308,9 @@ tools=[
 
 
 if __name__ == "__main__":
-    cli.run_app(server)
+    cli.run_app(
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            initialize_process_timeout=60.0
+        )
+    )
