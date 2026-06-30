@@ -173,7 +173,11 @@ async def entrypoint(ctx: JobContext):
     # Fixed local scoping issues from procedural layout
     silence_state = {
         "count": 0,
-        "task": None
+        "task": None,
+    }
+    call_state = {
+        "ended": False,
+        "max_duration_task": None,
     }
     
     session = AgentSession(
@@ -212,21 +216,49 @@ async def entrypoint(ctx: JobContext):
 
     attach_pipeline_logging(session)
 
+    async def end_call_gracefully(message: str, reason: str) -> None:
+        if call_state["ended"]:
+            return
+        call_state["ended"] = True
+
+        if silence_state["task"]:
+            silence_state["task"].cancel()
+            silence_state["task"] = None
+        if call_state["max_duration_task"]:
+            call_state["max_duration_task"].cancel()
+            call_state["max_duration_task"] = None
+
+        logger.info(reason)
+        await session.say(message)
+        await session.wait_for_playback()
+        await ctx.delete_room()
+
     # Scoped helper timeouts methods
     async def handle_silence_timeout():
         await asyncio.sleep(settings.silence_timeout_seconds)
+        if call_state["ended"]:
+            return
+
         silence_state["count"] += 1
-        
+
         if silence_state["count"] >= 2:
-            logger.info("Silence limit reached twice. Forcing disconnect sequence.")
-            await session.say(
-                "I haven't heard from you, so I'm going to end the call now. If you need anything else, feel free to reach out. Have a great day!"
+            await end_call_gracefully(
+                "I haven't heard from you, so I'm going to end the call now. If you need anything else, feel free to reach out. Have a great day!",
+                "Silence limit reached twice. Forcing disconnect sequence.",
             )
-            await session.wait_for_playback()
-            await ctx.delete_room()
         else:
             logger.info("Silence detected once. Prompting target checkpoint query.")
             await session.say("Are you still there? Let me know if you need any assistance.")
+
+    async def handle_max_call_duration():
+        await asyncio.sleep(settings.max_call_duration_seconds)
+        if call_state["ended"]:
+            return
+
+        await end_call_gracefully(
+            "We've reached the maximum call length of five minutes. Thank you for your time. If you need anything else, feel free to reach out. Have a great day!",
+            f"Max call duration ({settings.max_call_duration_seconds}s) reached. Ending call.",
+        )
 
     def reset_silence_timer():
         if silence_state["task"]:
@@ -302,6 +334,7 @@ Never invent experience, projects, or technologies.
     )
 
     await ctx.connect()
+    call_state["max_duration_task"] = asyncio.create_task(handle_max_call_duration())
     await session.say(
         "Hello, I am Usman's AI portfolio assistant. How can I help you today?",
     )

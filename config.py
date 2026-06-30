@@ -64,6 +64,6 @@ class Settings:
     )
 
     silence_timeout_seconds: int = _int(os.getenv("SILENCE_TIMEOUT_SECONDS"))
-
+    max_call_duration_seconds: int = _int(os.getenv("MAX_CALL_DURATION_SECONDS"))
 
 settings = Settings()
