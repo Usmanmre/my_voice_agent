@@ -63,7 +63,12 @@ class Settings:
         "You are a helpful voice assistant. Keep replies short and conversational.",
     )
 
-    silence_timeout_seconds: int = _int(os.getenv("SILENCE_TIMEOUT_SECONDS"))
-    max_call_duration_seconds: int = _int(os.getenv("MAX_CALL_DURATION_SECONDS"))
+    silence_timeout_seconds: int = _int(os.getenv("SILENCE_TIMEOUT_SECONDS"), 15)
+    max_call_duration_seconds: int = _int(os.getenv("MAX_CALL_DURATION_SECONDS"), 300),
 
-settings = Settings()
+    S3_BUCKET = os.getenv("S3_BUCKET_NAME")
+    S3_REGION = os.getenv("S3_REGION")
+    S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY")
+    S3_SECRET_KEY = os.getenv("S3_SECRET_ACCESS_KEY")
+
+settings = Settings(    )

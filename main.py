@@ -1,5 +1,5 @@
 import asyncio
-import datetime
+from datetime import datetime
 import logging
 
 from dotenv import load_dotenv
@@ -18,6 +18,7 @@ from livekit.agents import (
     llm,
     room_io,
 )
+from livekit import api
 from livekit.agents.metrics import log_metrics
 from livekit.agents.voice.events import (
     AgentStateChangedEvent,
@@ -25,7 +26,6 @@ from livekit.agents.voice.events import (
     UserInputTranscribedEvent,
 )
 from livekit.plugins import deepgram, noise_cancellation, openai, silero
-
 from config import settings
 from google_auth import sheet
 
@@ -335,6 +335,47 @@ Never invent experience, projects, or technologies.
 
     await ctx.connect()
     call_state["max_duration_task"] = asyncio.create_task(handle_max_call_duration())
+
+    # --- ADD EGRESS RECORDING START HERE ---
+    ts = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    filename = f"{ctx.room.name}-{ts}.ogg"  
+    s3_key = f"recordings/{ctx.room.name}/{filename}"
+
+    try:
+        # Build S3 upload config using the 'api' module from the 'livekit' package
+        s3_upload = api.S3Upload(
+            access_key=settings.S3_ACCESS_KEY,
+            secret=settings.S3_SECRET_KEY,
+            bucket=settings.S3_BUCKET,
+            region=settings.S3_REGION,
+        )
+
+        egress_req = api.RoomCompositeEgressRequest(
+            room_name=ctx.room.name,
+            audio_only=True,
+            file_outputs=[
+                api.EncodedFileOutput(
+                    file_type=api.EncodedFileType.OGG,
+                    filepath=s3_key,  
+                    s3=s3_upload,
+                )
+            ],
+        )
+
+        logger.info("Starting egress to S3: bucket=%s key=%s", settings.S3_BUCKET, s3_key)
+        
+        try:
+            # Leveraging the built-in api client on the JobContext
+            egress_resp = await ctx.api.egress.start_room_composite_egress(egress_req)
+            call_state["egress_id"] = egress_resp.egress_id
+            logger.info("Egress started (egress_id=%s)", call_state["egress_id"])
+        except Exception as ee:
+            logger.exception("Failed to start egress: %s", ee)
+            call_state["egress_id"] = None
+
+    except Exception as e:
+        logger.exception("Failed to build egress request: %s", e)
+
     await session.say(
         "Hello, I am Usman's AI portfolio assistant. How can I help you today?",
     )
