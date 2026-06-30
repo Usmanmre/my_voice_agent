@@ -63,7 +63,7 @@ class Settings:
         "You are a helpful voice assistant. Keep replies short and conversational.",
     )
 
-    silence_timeout_seconds: int = _int(os.getenv("SILENCE_TIMEOUT_SECONDS"))
-    max_call_duration_seconds: int = _int(os.getenv("MAX_CALL_DURATION_SECONDS"))
+    silence_timeout_seconds: int = _int(os.getenv("SILENCE_TIMEOUT_SECONDS"), 15)
+    max_call_duration_seconds: int = _int(os.getenv("MAX_CALL_DURATION_SECONDS"), 300)
 
 settings = Settings()
